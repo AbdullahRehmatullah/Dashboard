@@ -215,7 +215,7 @@ def create_function_distribution_chart(df):
             values=[row['Count']],
             name=row['Function'],
             marker=dict(
-                color=COLOR_MAP.get(row['Function'], '#333333'),
+                colors=[COLOR_MAP.get(row['Function'], '#333333')],
                 line=dict(color='black', width=2)
             ),
             text=[f"{row['Percentage']:.1f}%"],
