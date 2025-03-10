@@ -190,30 +190,66 @@ def create_daily_usage_chart(df):
 
 def create_function_distribution_chart(df):
     """
-    Create a function distribution pie chart
+    Create a function distribution pie chart with improved text visibility
     """
     function_counts = df['aia_feature'].value_counts().reset_index()
     function_counts.columns = ['Function', 'Count']
     
-    fig = px.pie(function_counts, values='Count', names='Function', 
-                title='AI Function Distribution',
-                color='Function',
-                color_discrete_map=COLOR_MAP)
+    # Calculate percentages for more precise display
+    total = function_counts['Count'].sum()
+    function_counts['Percentage'] = function_counts['Count'] / total * 100
+    function_counts['PercentLabel'] = function_counts['Percentage'].apply(lambda x: f"{x:.1f}%")
     
-    # Improve text visibility with custom styling and black outline
+    # For hover info, create a detailed label
+    function_counts['HoverInfo'] = function_counts.apply(
+        lambda row: f"{row['Function']}: {row['Count']} requests ({row['Percentage']:.2f}%)", 
+        axis=1
+    )
+    
+    # Create a custom pie chart with enhanced labels
+    fig = go.Figure()
+    
+    for i, row in function_counts.iterrows():
+        fig.add_trace(go.Pie(
+            labels=[row['Function']], 
+            values=[row['Count']],
+            name=row['Function'],
+            marker=dict(
+                color=COLOR_MAP.get(row['Function'], '#333333'),
+                line=dict(color='black', width=2)
+            ),
+            text=[f"{row['Percentage']:.1f}%"],
+            textinfo='text',
+            hoverinfo='text',
+            hovertext=[row['HoverInfo']],
+            textfont=dict(color='white', size=14, family="Arial Black"),
+            textposition='inside',
+            showlegend=True
+        ))
+    
     fig.update_traces(
-        textposition='inside', 
-        textinfo='percent+label',
-        textfont=dict(color='white', size=12, family="Arial Black"),
-        insidetextfont=dict(color='white'),
-        texttemplate='%{percent:.1%}<br>%{label}',
-        marker=dict(line=dict(color='black', width=1))  # Add black outline to segments
+        hole=0.3,  # Create a donut chart for better text visibility
     )
     
     fig.update_layout(
-        uniformtext_minsize=12,
-        uniformtext_mode='hide',
-        legend_title_text='Function'
+        title='AI Function Distribution',
+        legend=dict(
+            title=dict(text='Function'),
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        annotations=[
+            dict(
+                text='AI Functions',
+                x=0.5,
+                y=0.5,
+                font_size=12,
+                showarrow=False
+            )
+        ]
     )
     
     return fig
