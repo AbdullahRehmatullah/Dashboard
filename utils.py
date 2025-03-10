@@ -13,6 +13,9 @@ import matplotlib
 import matplotlib.patheffects as path_effects
 matplotlib.use('Agg')  # Set the backend to avoid threading issues
 import seaborn as sns
+import xlsxwriter
+import tempfile
+import shutil
 
 # Color palette for consistent visualizations
 COLOR_MAP = {
@@ -495,6 +498,130 @@ def create_total_daily_usage_chart(df):
     
     return fig
     
+def create_excel_report(filtered_df, stats):
+    """
+    Create an Excel report with multiple worksheets for different analyses
+    """
+    # Create a BytesIO object to store the Excel file
+    excel_buffer = io.BytesIO()
+    
+    # Create a Pandas Excel writer using XlsxWriter as the engine
+    with pd.ExcelWriter(excel_buffer, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        
+        # Add a summary sheet with stats
+        summary_data = pd.DataFrame({
+            'Metric': [
+                'Report Period',
+                'Total Requests',
+                'Total Companies',
+                'Total Users',
+                'Total Prompt Tokens',
+                'Total Completion Tokens',
+                'Total Tokens',
+                'Average Tokens per Request'
+            ],
+            'Value': [
+                f"{filtered_df['date'].min()} to {filtered_df['date'].max()}",
+                f"{stats['total_requests']:,}",
+                f"{stats['total_companies']:,}",
+                f"{stats['total_users']:,}",
+                f"{stats['total_prompt_tokens']:,.0f}",
+                f"{stats['total_completion_tokens']:,.0f}",
+                f"{stats['total_tokens']:,.0f}",
+                f"{stats['avg_tokens_per_request']:.2f}"
+            ]
+        })
+        summary_data.to_excel(writer, sheet_name='Summary', index=False)
+        
+        # Format the summary sheet
+        summary_sheet = writer.sheets['Summary']
+        summary_sheet.set_column('A:A', 25)
+        summary_sheet.set_column('B:B', 20)
+        
+        # Add a title to the summary sheet
+        title_format = workbook.add_format({
+            'bold': True,
+            'font_size': 16,
+            'align': 'center',
+            'valign': 'vcenter'
+        })
+        summary_sheet.merge_range('A1:B1', 'AI Functions Analytics Report', title_format)
+        summary_sheet.write(1, 0, 'Metric')
+        summary_sheet.write(1, 1, 'Value')
+        
+        # Function Distribution Sheet
+        function_counts = filtered_df['aia_feature'].value_counts().reset_index()
+        function_counts.columns = ['Function', 'Count']
+        function_counts['Percentage'] = (function_counts['Count'] / function_counts['Count'].sum() * 100).round(2)
+        function_counts.to_excel(writer, sheet_name='Function Distribution', index=False)
+        
+        # Daily Usage Sheet
+        daily_usage = filtered_df.groupby(['date', 'aia_feature']).size().reset_index(name='count')
+        daily_usage.to_excel(writer, sheet_name='Daily Usage', index=False)
+        
+        # Company Usage Sheet
+        company_usage = filtered_df.groupby('company_name').size().reset_index(name='Request Count')
+        company_usage = company_usage.sort_values('Request Count', ascending=False)
+        company_usage.to_excel(writer, sheet_name='Company Usage', index=False)
+        
+        # Token Usage Sheet
+        token_usage = filtered_df.groupby('aia_feature').agg({
+            'aia_prompt_token': ['sum', 'mean'],
+            'aia_completion_token': ['sum', 'mean'],
+            'total_tokens': ['sum', 'mean']
+        }).reset_index()
+        token_usage.columns = ['Function', 'Total Prompt Tokens', 'Avg Prompt Tokens', 
+                             'Total Completion Tokens', 'Avg Completion Tokens',
+                             'Total Tokens', 'Avg Tokens']
+        token_usage.to_excel(writer, sheet_name='Token Usage', index=False)
+        
+        # Company Function Matrix
+        # Get top 20 companies by usage
+        top_companies = filtered_df.groupby('company_name').size().nlargest(20).index.tolist()
+        
+        # Filter for those companies
+        matrix_df = filtered_df[filtered_df['company_name'].isin(top_companies)]
+        
+        # Create pivot table with company names as rows and functions as columns
+        pivot_df = matrix_df.pivot_table(
+            index='company_name',
+            columns='aia_feature',
+            values='aia_id',
+            aggfunc='count',
+            fill_value=0
+        )
+        
+        # Add a total column
+        pivot_df['Total'] = pivot_df.sum(axis=1)
+        
+        # Sort by the total
+        pivot_df = pivot_df.sort_values('Total', ascending=False)
+        
+        # Save to Excel
+        pivot_df.to_excel(writer, sheet_name='Company Function Matrix')
+        
+        # Format sheets
+        for sheet_name in writer.sheets:
+            sheet = writer.sheets[sheet_name]
+            header_format = workbook.add_format({
+                'bold': True,
+                'text_wrap': True,
+                'valign': 'top',
+                'fg_color': '#D7E4BC',
+                'border': 1
+            })
+            
+            # Write the column headers with the defined format
+            if sheet_name != 'Company Function Matrix':
+                for col_num, value in enumerate(writer.sheets[sheet_name].table.columns):
+                    sheet.write(0, col_num, value, header_format)
+    
+    # Reset the buffer position to the beginning
+    excel_buffer.seek(0)
+    
+    return excel_buffer
+
 def create_pdf_report(filtered_df, stats):
     """
     Create a PDF report with all the visualizations
