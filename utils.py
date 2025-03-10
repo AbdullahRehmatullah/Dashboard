@@ -10,6 +10,7 @@ import base64
 import os
 import matplotlib.pyplot as plt
 import matplotlib
+import matplotlib.patheffects as path_effects
 matplotlib.use('Agg')  # Set the backend to avoid threading issues
 import seaborn as sns
 
@@ -199,12 +200,14 @@ def create_function_distribution_chart(df):
                 color='Function',
                 color_discrete_map=COLOR_MAP)
     
-    # Set all text to white for better visibility
+    # Improve text visibility with custom styling and black outline
     fig.update_traces(
         textposition='inside', 
         textinfo='percent+label',
-        textfont=dict(color='white', size=12),
-        insidetextfont=dict(color='white')
+        textfont=dict(color='white', size=12, family="Arial Black"),
+        insidetextfont=dict(color='white'),
+        texttemplate='%{percent:.1%}<br>%{label}',
+        marker=dict(line=dict(color='black', width=1))  # Add black outline to segments
     )
     
     fig.update_layout(
@@ -500,8 +503,29 @@ def create_pdf_report(filtered_df, stats):
     plt.figure(figsize=(8, 5))
     function_counts = filtered_df['aia_feature'].value_counts()
     colors = [COLOR_MAP.get(func, '#333333') for func in function_counts.index]
-    plt.pie(function_counts, labels=function_counts.index, autopct='%1.1f%%', 
-            startangle=140, colors=colors)
+    
+    # Create pie chart with improved visibility
+    wedges, texts, autotexts = plt.pie(
+        function_counts, 
+        labels=function_counts.index, 
+        autopct='%1.1f%%', 
+        startangle=140, 
+        colors=colors,
+        wedgeprops=dict(edgecolor='black', linewidth=1)  # Add black outline
+    )
+    
+    # Set font properties for better visibility
+    for text in texts + autotexts:
+        text.set_fontweight('bold')
+        text.set_color('white')  # White text
+        text.set_fontsize(10)
+        
+    # Add shadow effect for better text contrast
+    for autotext in autotexts:
+        autotext.set_path_effects([
+            path_effects.withStroke(linewidth=2, foreground='black')
+        ])
+        
     plt.axis('equal')
     plt.title('AI Function Distribution', fontsize=14, fontweight='bold')
     plt.tight_layout()
