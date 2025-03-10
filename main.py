@@ -255,7 +255,10 @@ with tab1:
                 unsafe_allow_html=True
             )
         
-        with col2:
+        # Create columns for the export buttons
+        report_col1, report_col2 = st.columns(2)
+        
+        with report_col1:
             # Generate and download PDF report
             if st.button("Generate PDF Report", type="primary"):
                 with st.spinner("Generating PDF report..."):
@@ -269,6 +272,21 @@ with tab1:
                         st.success("PDF report generated successfully!")
                     except Exception as e:
                         st.error(f"Error generating PDF report: {str(e)}")
+        
+        with report_col2:
+            # Generate and download Excel report
+            if st.button("Generate Excel Report", type="primary"):
+                with st.spinner("Generating Excel report..."):
+                    try:
+                        excel_data = create_excel_report(filtered_df, stats)
+                        b64_excel = base64.b64encode(excel_data.getvalue()).decode()
+                        st.markdown(
+                            f'<a href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{b64_excel}" download="ai_analytics_report.xlsx" class="custom-button">Download Excel Report</a>',
+                            unsafe_allow_html=True
+                        )
+                        st.success("Excel report generated successfully!")
+                    except Exception as e:
+                        st.error(f"Error generating Excel report: {str(e)}")
         
         # Data table view
         with st.expander("View Data Table"):
