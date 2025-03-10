@@ -7,10 +7,11 @@ import streamlit as st
 import io
 from fpdf import FPDF
 import base64
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Image, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
 import os
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # Set the backend to avoid threading issues
+import seaborn as sns
 
 # Color palette for consistent visualizations
 COLOR_MAP = {
@@ -192,7 +193,14 @@ def create_function_distribution_chart(df):
                 color='Function',
                 color_discrete_map=COLOR_MAP)
     
-    fig.update_traces(textposition='inside', textinfo='percent+label')
+    # Set all text to white for better visibility
+    fig.update_traces(
+        textposition='inside', 
+        textinfo='percent+label',
+        textfont=dict(color='white', size=12),
+        insidetextfont=dict(color='white')
+    )
+    
     fig.update_layout(
         uniformtext_minsize=12,
         uniformtext_mode='hide',
@@ -447,8 +455,66 @@ def create_pdf_report(filtered_df, stats):
     """
     Create a PDF report with all the visualizations
     """
-    # Create PDF document directly using FPDF
+    # Create temporary directory for visualizations
+    if not os.path.exists('temp_charts'):
+        os.makedirs('temp_charts')
+    
+    # Create and save matplotlib visualizations for the PDF
+    # 1. Function Distribution Chart
+    plt.figure(figsize=(8, 5))
+    function_counts = filtered_df['aia_feature'].value_counts()
+    colors = [COLOR_MAP.get(func, '#333333') for func in function_counts.index]
+    plt.pie(function_counts, labels=function_counts.index, autopct='%1.1f%%', 
+            startangle=140, colors=colors)
+    plt.axis('equal')
+    plt.title('AI Function Distribution', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig('temp_charts/function_dist.png', dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    # 2. Daily Usage Chart
+    plt.figure(figsize=(10, 5))
+    daily_totals = filtered_df.groupby('date').size()
+    plt.plot(daily_totals.index, daily_totals.values, marker='o', linewidth=2)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.title('Daily Total AI Function Usage', fontsize=14, fontweight='bold')
+    plt.xlabel('Date', fontsize=12)
+    plt.ylabel('Total Requests', fontsize=12)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig('temp_charts/daily_usage.png', dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    # 3. Company Usage Bar Chart
+    plt.figure(figsize=(10, 6))
+    top_companies = filtered_df.groupby('company_name').size().nlargest(10)
+    ax = sns.barplot(x=top_companies.values, y=top_companies.index, palette='viridis')
+    plt.title('Top 10 Companies by AI Function Usage', fontsize=14, fontweight='bold')
+    plt.xlabel('Number of Requests', fontsize=12)
+    plt.ylabel('Company Name', fontsize=12)
+    plt.tight_layout()
+    plt.savefig('temp_charts/company_usage.png', dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    # 4. Token Usage Chart
+    plt.figure(figsize=(10, 6))
+    token_data = filtered_df.groupby('aia_feature').agg({
+        'aia_prompt_token': 'sum',
+        'aia_completion_token': 'sum'
+    })
+    token_data.plot(kind='bar', figsize=(10, 6))
+    plt.title('Token Usage by Function', fontsize=14, fontweight='bold')
+    plt.xlabel('Function', fontsize=12)
+    plt.ylabel('Token Count', fontsize=12)
+    plt.legend(['Prompt Tokens', 'Completion Tokens'])
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig('temp_charts/token_usage.png', dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    # Create PDF document using FPDF
     pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
     # Set title
@@ -471,31 +537,29 @@ def create_pdf_report(filtered_df, stats):
     pdf.cell(0, 8, f"Total Users: {stats['total_users']:,}", 0, 1)
     pdf.cell(0, 8, f"Total Tokens: {stats['total_tokens']:,}", 0, 1)
     pdf.cell(0, 8, f"Average Tokens per Request: {stats['avg_tokens_per_request']:.2f}", 0, 1)
-    pdf.ln(5)
+    pdf.ln(10)
     
-    # Add tabular data
+    # Add function distribution chart
     pdf.set_font('Arial', 'B', 14)
-    pdf.cell(0, 10, 'Top 10 Companies by Usage', 0, 1)
-    pdf.set_font('Arial', 'B', 10)
-    
-    # Get top 10 companies
-    top_companies_df = filtered_df.groupby('company_name').size().nlargest(10).reset_index(name='count')
-    
-    # Create table header
-    pdf.cell(100, 8, 'Company Name', 1, 0, 'C')
-    pdf.cell(40, 8, 'Usage Count', 1, 1, 'C')
-    
-    # Create table rows
-    pdf.set_font('Arial', '', 10)
-    for _, row in top_companies_df.iterrows():
-        company_name = row['company_name']
-        if len(company_name) > 40:  # Truncate long names
-            company_name = company_name[:37] + '...'
-        pdf.cell(100, 8, company_name, 1, 0)
-        pdf.cell(40, 8, str(row['count']), 1, 1, 'C')
+    pdf.cell(0, 10, 'Function Distribution', 0, 1)
+    pdf.image('temp_charts/function_dist.png', x=10, w=180)
     pdf.ln(5)
     
-    # Add function distribution data
+    # Add daily usage chart
+    pdf.add_page()
+    pdf.set_font('Arial', 'B', 14)
+    pdf.cell(0, 10, 'Daily Usage Trend', 0, 1)
+    pdf.image('temp_charts/daily_usage.png', x=10, w=180)
+    pdf.ln(5)
+    
+    # Add company usage chart
+    pdf.add_page()
+    pdf.set_font('Arial', 'B', 14)
+    pdf.cell(0, 10, 'Top Companies by Usage', 0, 1)
+    pdf.image('temp_charts/company_usage.png', x=10, w=180)
+    pdf.ln(5)
+    
+    # Function usage distribution table
     pdf.set_font('Arial', 'B', 14)
     pdf.cell(0, 10, 'Function Usage Distribution', 0, 1)
     pdf.set_font('Arial', 'B', 10)
@@ -516,9 +580,39 @@ def create_pdf_report(filtered_df, stats):
         pdf.cell(80, 8, row['Function'], 1, 0)
         pdf.cell(40, 8, str(row['Count']), 1, 0, 'C')
         pdf.cell(40, 8, f"{row['Count']/total*100:.1f}%", 1, 1, 'C')
+    pdf.ln(10)
+    
+    # Add token usage chart and data on the same page
+    pdf.add_page()
+    pdf.set_font('Arial', 'B', 14)
+    pdf.cell(0, 10, 'Token Usage Analysis', 0, 1)
+    pdf.image('temp_charts/token_usage.png', x=10, w=180)
     pdf.ln(5)
     
-    # Add daily stats
+    # Token usage table
+    pdf.set_font('Arial', 'B', 10)
+    token_df = filtered_df.groupby('aia_feature').agg({
+        'aia_prompt_token': 'sum',
+        'aia_completion_token': 'sum',
+        'total_tokens': 'sum'
+    }).reset_index()
+    
+    # Create table header
+    pdf.cell(60, 8, 'Function', 1, 0, 'C')
+    pdf.cell(40, 8, 'Prompt Tokens', 1, 0, 'C')
+    pdf.cell(40, 8, 'Completion Tokens', 1, 0, 'C')
+    pdf.cell(40, 8, 'Total Tokens', 1, 1, 'C')
+    
+    # Create table rows
+    pdf.set_font('Arial', '', 10)
+    for _, row in token_df.iterrows():
+        pdf.cell(60, 8, row['aia_feature'], 1, 0)
+        pdf.cell(40, 8, f"{row['aia_prompt_token']:,.0f}", 1, 0, 'C')
+        pdf.cell(40, 8, f"{row['aia_completion_token']:,.0f}", 1, 0, 'C')
+        pdf.cell(40, 8, f"{row['total_tokens']:,.0f}", 1, 1, 'C')
+    
+    # Add daily stats on a new page
+    pdf.add_page()
     pdf.set_font('Arial', 'B', 14)
     pdf.cell(0, 10, 'Daily Usage Summary', 0, 1)
     pdf.set_font('Arial', 'B', 10)
@@ -537,33 +631,6 @@ def create_pdf_report(filtered_df, stats):
         pdf.cell(60, 8, str(row['date']), 1, 0, 'C')
         pdf.cell(60, 8, str(row['count']), 1, 1, 'C')
     
-    # Add token usage information
-    pdf.add_page()
-    pdf.set_font('Arial', 'B', 14)
-    pdf.cell(0, 10, 'Token Usage by Function', 0, 1)
-    pdf.set_font('Arial', 'B', 10)
-    
-    # Get token usage by function
-    token_df = filtered_df.groupby('aia_feature').agg({
-        'aia_prompt_token': 'sum',
-        'aia_completion_token': 'sum',
-        'total_tokens': 'sum'
-    }).reset_index()
-    
-    # Create table header
-    pdf.cell(60, 8, 'Function', 1, 0, 'C')
-    pdf.cell(45, 8, 'Prompt Tokens', 1, 0, 'C')
-    pdf.cell(45, 8, 'Completion Tokens', 1, 0, 'C')
-    pdf.cell(45, 8, 'Total Tokens', 1, 1, 'C')
-    
-    # Create table rows
-    pdf.set_font('Arial', '', 10)
-    for _, row in token_df.iterrows():
-        pdf.cell(60, 8, row['aia_feature'], 1, 0)
-        pdf.cell(45, 8, f"{row['aia_prompt_token']:,.0f}", 1, 0, 'C')
-        pdf.cell(45, 8, f"{row['aia_completion_token']:,.0f}", 1, 0, 'C')
-        pdf.cell(45, 8, f"{row['total_tokens']:,.0f}", 1, 1, 'C')
-    
     # Add footer with date generated
     pdf.ln(10)
     pdf.set_font('Arial', 'I', 8)
@@ -571,6 +638,11 @@ def create_pdf_report(filtered_df, stats):
     
     # Generate PDF
     pdf_output = pdf.output(dest='S').encode('latin1')
+    
+    # Clean up the temporary charts
+    import shutil
+    if os.path.exists('temp_charts'):
+        shutil.rmtree('temp_charts')
     
     return pdf_output
 
