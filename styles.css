@@ -15,6 +15,16 @@
     margin-bottom: 0.5rem !important;
 }
 
+.subsection-title {
+    font-size: 1.2rem !important;
+    font-weight: 600 !important;
+    color: #3a4854 !important;
+    margin-top: 0.8rem !important;
+    margin-bottom: 0.4rem !important;
+    border-left: 3px solid #4361ee;
+    padding-left: 8px;
+}
+
 .upload-section {
     background-color: #f8f9fa;
     border-radius: 10px;

@@ -204,6 +204,11 @@ with tab1:
             heatmap_chart = create_company_function_heatmap(filtered_df)
             st.plotly_chart(heatmap_chart, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
+            
+        # Top 10 Companies with function breakdown table
+        st.markdown('<h3 class="subsection-title">Top 10 Companies with Function Usage Breakdown</h3>', unsafe_allow_html=True)
+        companies_table = create_top_companies_table(filtered_df)
+        st.dataframe(companies_table, use_container_width=True, height=400)
         
         # Third row of charts
         st.markdown('<h2 class="section-title">Token Analysis</h2>', unsafe_allow_html=True)

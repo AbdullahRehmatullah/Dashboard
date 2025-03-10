@@ -30,6 +30,9 @@ STATS_COLORS = {
     'Total Tokens': '#4895ef'
 }
 
+# Internal user groups to exclude from analysis
+INTERNAL_GROUPS = [2677, 5090]
+
 def load_and_process_analytics_data(file):
     """
     Load and process AI analytics data from uploaded file
@@ -103,6 +106,9 @@ def merge_datasets(analytics_df, group_df):
         
         # Handle any missing company names
         merged_df['company_name'] = merged_df['company_name'].fillna(f"Unknown (ID: {merged_df['aia_group_id']})")
+        
+        # Filter out internal user groups
+        merged_df = merged_df[~merged_df['aia_group_id'].isin(INTERNAL_GROUPS)]
         
         return merged_df
     except Exception as e:
@@ -267,6 +273,36 @@ def create_company_function_heatmap(df):
     )
     
     return fig
+    
+def create_top_companies_table(df):
+    """
+    Create a table showing top 10 companies with function usage breakdown
+    """
+    # Get top 10 companies by total usage
+    top_companies = df.groupby('company_name').size().nlargest(10).index.tolist()
+    
+    # Filter for those companies
+    filtered_df = df[df['company_name'].isin(top_companies)]
+    
+    # Create pivot table with company names as rows and functions as columns
+    pivot_df = filtered_df.pivot_table(
+        index='company_name',
+        columns='aia_feature',
+        values='aia_id',
+        aggfunc='count',
+        fill_value=0
+    )
+    
+    # Add a total column
+    pivot_df['Total'] = pivot_df.sum(axis=1)
+    
+    # Sort by the total
+    pivot_df = pivot_df.sort_values('Total', ascending=False)
+    
+    # Format as a regular dataframe for display
+    result_df = pivot_df.reset_index()
+    
+    return result_df
 
 def create_token_usage_chart(df):
     """
