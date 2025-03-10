@@ -4,6 +4,13 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import streamlit as st
+import io
+from fpdf import FPDF
+import base64
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Image, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+import os
 
 # Color palette for consistent visualizations
 COLOR_MAP = {
@@ -12,6 +19,14 @@ COLOR_MAP = {
     'Nl2Sql': '#2ca02c',                # green
     'PointOfInterest': '#d62728',       # red
     'TextCompletion': '#9467bd'         # purple
+}
+
+# Stats card colors
+STATS_COLORS = {
+    'Total Requests': '#4361ee',
+    'Total Companies': '#3a86ff',
+    'Total Users': '#4cc9f0',
+    'Total Tokens': '#4895ef'
 }
 
 def load_and_process_analytics_data(file):
@@ -389,3 +404,325 @@ def create_average_token_bar_chart(df):
     )
     
     return fig
+    
+def create_total_daily_usage_chart(df):
+    """
+    Create a total daily usage line chart across all functions
+    """
+    # Group by date and count total requests per day
+    daily_totals = df.groupby('date').size().reset_index(name='count')
+    
+    fig = px.line(daily_totals, x='date', y='count',
+                 markers=True,
+                 title='Daily Total AI Function Usage',
+                 labels={'count': 'Total Requests', 'date': 'Date'})
+    
+    # Add a trend line
+    fig.add_trace(
+        go.Scatter(
+            x=daily_totals['date'],
+            y=daily_totals['count'].rolling(window=2, min_periods=1).mean(),
+            mode='lines',
+            line=dict(color='rgba(255, 0, 0, 0.5)', width=2, dash='dash'),
+            name='Trend (2-day MA)'
+        )
+    )
+    
+    fig.update_layout(
+        hovermode='x unified',
+        plot_bgcolor='white',
+        xaxis=dict(
+            showgrid=True,
+            gridcolor='lightgrey',
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor='lightgrey',
+        )
+    )
+    
+    return fig
+    
+def create_pdf_report(filtered_df, stats):
+    """
+    Create a PDF report with all the visualizations
+    """
+    # Create PDF document directly using FPDF
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Set title
+    pdf.set_font('Arial', 'B', 16)
+    pdf.cell(0, 10, 'AI Functions Analytics Report', 0, 1, 'C')
+    pdf.ln(5)
+    
+    # Add date range
+    pdf.set_font('Arial', 'B', 12)
+    date_range = f"Report period: {filtered_df['date'].min()} to {filtered_df['date'].max()}"
+    pdf.cell(0, 10, date_range, 0, 1)
+    pdf.ln(5)
+    
+    # Add summary stats
+    pdf.set_font('Arial', 'B', 14)
+    pdf.cell(0, 10, 'Summary Statistics', 0, 1)
+    pdf.set_font('Arial', '', 11)
+    pdf.cell(0, 8, f"Total Requests: {stats['total_requests']:,}", 0, 1)
+    pdf.cell(0, 8, f"Total Companies: {stats['total_companies']:,}", 0, 1)
+    pdf.cell(0, 8, f"Total Users: {stats['total_users']:,}", 0, 1)
+    pdf.cell(0, 8, f"Total Tokens: {stats['total_tokens']:,}", 0, 1)
+    pdf.cell(0, 8, f"Average Tokens per Request: {stats['avg_tokens_per_request']:.2f}", 0, 1)
+    pdf.ln(5)
+    
+    # Add tabular data
+    pdf.set_font('Arial', 'B', 14)
+    pdf.cell(0, 10, 'Top 10 Companies by Usage', 0, 1)
+    pdf.set_font('Arial', 'B', 10)
+    
+    # Get top 10 companies
+    top_companies_df = filtered_df.groupby('company_name').size().nlargest(10).reset_index(name='count')
+    
+    # Create table header
+    pdf.cell(100, 8, 'Company Name', 1, 0, 'C')
+    pdf.cell(40, 8, 'Usage Count', 1, 1, 'C')
+    
+    # Create table rows
+    pdf.set_font('Arial', '', 10)
+    for _, row in top_companies_df.iterrows():
+        company_name = row['company_name']
+        if len(company_name) > 40:  # Truncate long names
+            company_name = company_name[:37] + '...'
+        pdf.cell(100, 8, company_name, 1, 0)
+        pdf.cell(40, 8, str(row['count']), 1, 1, 'C')
+    pdf.ln(5)
+    
+    # Add function distribution data
+    pdf.set_font('Arial', 'B', 14)
+    pdf.cell(0, 10, 'Function Usage Distribution', 0, 1)
+    pdf.set_font('Arial', 'B', 10)
+    
+    # Get function counts
+    function_counts = filtered_df['aia_feature'].value_counts().reset_index()
+    function_counts.columns = ['Function', 'Count']
+    
+    # Create table header
+    pdf.cell(80, 8, 'Function', 1, 0, 'C')
+    pdf.cell(40, 8, 'Count', 1, 0, 'C')
+    pdf.cell(40, 8, 'Percentage', 1, 1, 'C')
+    
+    # Create table rows
+    pdf.set_font('Arial', '', 10)
+    total = function_counts['Count'].sum()
+    for _, row in function_counts.iterrows():
+        pdf.cell(80, 8, row['Function'], 1, 0)
+        pdf.cell(40, 8, str(row['Count']), 1, 0, 'C')
+        pdf.cell(40, 8, f"{row['Count']/total*100:.1f}%", 1, 1, 'C')
+    pdf.ln(5)
+    
+    # Add daily stats
+    pdf.set_font('Arial', 'B', 14)
+    pdf.cell(0, 10, 'Daily Usage Summary', 0, 1)
+    pdf.set_font('Arial', 'B', 10)
+    
+    # Get daily counts
+    daily_counts = filtered_df.groupby('date').size().reset_index(name='count')
+    daily_counts = daily_counts.sort_values('date')
+    
+    # Create table header
+    pdf.cell(60, 8, 'Date', 1, 0, 'C')
+    pdf.cell(60, 8, 'Total Requests', 1, 1, 'C')
+    
+    # Create table rows
+    pdf.set_font('Arial', '', 10)
+    for _, row in daily_counts.iterrows():
+        pdf.cell(60, 8, str(row['date']), 1, 0, 'C')
+        pdf.cell(60, 8, str(row['count']), 1, 1, 'C')
+    
+    # Add token usage information
+    pdf.add_page()
+    pdf.set_font('Arial', 'B', 14)
+    pdf.cell(0, 10, 'Token Usage by Function', 0, 1)
+    pdf.set_font('Arial', 'B', 10)
+    
+    # Get token usage by function
+    token_df = filtered_df.groupby('aia_feature').agg({
+        'aia_prompt_token': 'sum',
+        'aia_completion_token': 'sum',
+        'total_tokens': 'sum'
+    }).reset_index()
+    
+    # Create table header
+    pdf.cell(60, 8, 'Function', 1, 0, 'C')
+    pdf.cell(45, 8, 'Prompt Tokens', 1, 0, 'C')
+    pdf.cell(45, 8, 'Completion Tokens', 1, 0, 'C')
+    pdf.cell(45, 8, 'Total Tokens', 1, 1, 'C')
+    
+    # Create table rows
+    pdf.set_font('Arial', '', 10)
+    for _, row in token_df.iterrows():
+        pdf.cell(60, 8, row['aia_feature'], 1, 0)
+        pdf.cell(45, 8, f"{row['aia_prompt_token']:,.0f}", 1, 0, 'C')
+        pdf.cell(45, 8, f"{row['aia_completion_token']:,.0f}", 1, 0, 'C')
+        pdf.cell(45, 8, f"{row['total_tokens']:,.0f}", 1, 1, 'C')
+    
+    # Add footer with date generated
+    pdf.ln(10)
+    pdf.set_font('Arial', 'I', 8)
+    pdf.cell(0, 10, f"Report generated on {datetime.now().strftime('%Y-%m-%d %H:%M')}", 0, 0, 'C')
+    
+    # Generate PDF
+    pdf_output = pdf.output(dest='S').encode('latin1')
+    
+    return pdf_output
+
+def load_group_data_from_file():
+    """
+    Load the embedded group data
+    """
+    try:
+        # This is the embedded group data from the file
+        data = """
+Company Name,Status,Group ID
+GoYzer Tech,Active,2677
+Property Shop Investment,Active,5002
+QA,Active,5003
+Oryx Management,Active,5004
+Dubai Islamic Bank,Active,5005
+PSI 2,Active,5007
+Mixta,Active,5008
+Al Forsan Real Estate,Active,5009
+Prophunters Real Estate,Active,5011
+Eastern Sands,Active,5014
+Better Homes,Active,5016
+Bhomes,Active,5017
+Arab Vision,Active,5018
+Goyzer Lite,Active,5020
+Tamani Properties,Active,5021
+Trx Staging System,Active,5056
+Savoir,Active,5023
+Chestertons MENA,Active,5029
+Al Asad Real Estate,Active,5030
+Elite Estates Real Estate Broker,Active,5031
+Habibi Properties,Active,5032
+Powerhouse Real Estate,Active,5033
+Leon Properties,Active,5034
+Linda Real Estate,Active,5097
+Ascot and Co,Active,5036
+CRC Real Estate,Active,5037
+Casabella Property Broker LLC,Active,5038
+Emtelak Properties,Active,5039
+Stars and Sands Properties,Active,5040
+Goyzer Own Group,Active,5041
+Home Space Realtors,Active,5042
+Colliers,Active,5043
+Strada UAE,Active,5044
+EVA Real Estate LLC,Active,5045
+Positive Properties,Active,5046
+Luke Stays Luxury Real Estate,Active,5047
+Jade & Co Real Estate,Active,5048
+Emirates Post Group (EPG),Active,5049
+United Plaza Real Estate,Active,5050
+Zealway Real Estate,Active,5051
+The Urban Nest Real Estate LLC,Active,5052
+Sustainable Homes Real Estate,Active,5053
+First Point Real Estate Brokerage,Active,5054
+Best Luxury Properties ,Active,5055
+Palma Real Estate,Active,5057
+National Homes Real Estate,Active,5058
+Williams International,Active,5059
+Homes Jordan (Hummer Contracting),Active,5060
+Dubai Sport City,Active,5061
+Christies International Real Estate,Active,5062
+BlackBrick Property LLC,Active,5063
+Irwin REal Estate,Active,5064
+Mayfield International Real Estate,Active,5065
+"Ports, Customs and Free Zone Corporation ",Active,5066
+Blue Coast Real Estate ,Active,5067
+Investalet,Active,5068
+Point Blank Properties,Active,5069
+Zed Capital Real Estate,Active,5070
+Buy Own House Property ,Active,5071
+Moonstay Real Estate,Active,5072
+Sino Gulf,Active,5073
+Roya Solutions Group,Active,5074
+Savills Middle East,Active,5075
+Haus and Haus,Active,5076
+City Luxe Real Estate,Active,5077
+La Capitale Real Estate,Active,5078
+D&B Properties,Active,5079
+Prime Location Property Real Estate,Active,5080
+Bramwell & Partners Real Estate,Active,5081
+The Luxury Collection Real Estate,Active,5082
+The Noble House Real Estate,Active,5083
+Range International ,Active,5084
+Aqua Properties,Active,5085
+Worldfield Real Estate,Active,5086
+Family Homes Real Estate L.L.C,Active,5087
+DB Dedicated for Trainings.,Active,5088
+Ahmadyar Developments,Active,5089
+IQ Pro Real Estate ,Active,5091
+Locke Lifestyle Properties,Active,5092
+V serve Real Estate LLC,Active,5093
+Luxury Escape,Active,5094
+Luxury Invest,Active,5095
+Apex Real Estate,Active,5096
+Linda Real Estate,Active,5097
+Pulse Real Estate,Active,5098
+Horizon Vista Real Estate,Active,5099
+Sequoia Properties,Active,5101
+Keller Williams ,Active,5102
+Key One Realty Group,Active,5103
+Mayak Real Estate,Active,5104
+Property Matters,Active,5105
+Fifty Two Real Estate,Active,5106
+Signature Homes,Active,5107
+Manresa Real Estate,Active,5108
+Pangea Properties,Active,5109
+Amaal Emirates,Active,5110
+Henry Wiltshire International,Active,5111
+Kevo Living,Active,5112
+Remal Properties,Active,5113
+Al Mamzar Real Estate And Commercial Broker,Active,5114
+Better Homes Qatar,Active,5115
+Wakhan Properties,Active,5116
+AJ Gargash Real Estate Development,Active,5118
+Mohammad Al Sayed Ibrahim,Active,5119
+VIP Luxury Homes Real Estate,Active,5120
+Republik Real Estate (Abu Dhabi),Active,5121
+Stage Properties,Active,5122
+Acres & Squares Real Estate,Active,5123
+Al Ansari Real Estate Development LLC,Active,5124
+Bhomes DSC,Active,5126
+Audley's International Real Estate,Active,5125
+Cavendish Maxwell,Active,5127
+Al Ain Properties LLC,Active,5128
+R H E M Properties L.L.C,Active,5129
+SunShine Properties Real Estate Broker ,Active,5130
+Capstone Real Estate L.L.C,Active,5131
+Phoenix Homes Real Estate,Active,5133
+Royce International Realty,Active,5134
+Roots Heritage,Active,5135
+Tulip-al Thahabi,Active,5136
+Xpotential Real Estate Brokers,Active,5137
+Avenew Real Estate,Active,5138
+PuraNova Properties LLC,Active,5139
+Union Square House Real Estate,Active,5140
+PropBay Universal Real Estate Brokerage,Active,5141
+"""
+        # Write data to a temporary file
+        with open("temp_group_data.csv", "w") as f:
+            f.write(data)
+            
+        # Read the data with pandas
+        df = pd.read_csv("temp_group_data.csv", skiprows=1)
+        
+        # Rename columns for easier merging
+        df = df.rename(columns={'Group ID': 'group_id', 'Company Name': 'company_name'})
+        
+        # Clean up the temp file
+        if os.path.exists("temp_group_data.csv"):
+            os.remove("temp_group_data.csv")
+            
+        return df
+    except Exception as e:
+        st.error(f"Error loading embedded group data: {str(e)}")
+        return None

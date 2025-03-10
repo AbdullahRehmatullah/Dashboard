@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import io
 import base64
+import os
 from utils import *
 
 # Set page configuration
@@ -30,7 +31,8 @@ st.markdown('<h1 class="main-title">AI Functions Analytics Dashboard</h1>', unsa
 if 'analytics_data' not in st.session_state:
     st.session_state.analytics_data = None
 if 'group_data' not in st.session_state:
-    st.session_state.group_data = None
+    # Load the embedded group data on first run
+    st.session_state.group_data = load_group_data_from_file()
 if 'merged_data' not in st.session_state:
     st.session_state.merged_data = None
 if 'filtered_data' not in st.session_state:
@@ -42,45 +44,36 @@ tab1, tab2 = st.tabs(["📊 Dashboard", "📂 Data Upload"])
 # Data Upload Tab
 with tab2:
     st.markdown('<h2 class="section-title">Data Upload</h2>', unsafe_allow_html=True)
-    st.write("Upload your data files to populate the dashboard. You need to upload both files for complete analysis.")
+    st.write("Upload your AI analytics data to populate the dashboard. The company group names are already embedded.")
     
-    col1, col2 = st.columns(2)
+    st.markdown('<div class="upload-section">', unsafe_allow_html=True)
+    st.markdown('<h3>AI Analytics Data</h3>', unsafe_allow_html=True)
+    st.write("Upload the AI functions usage data (CSV format)")
+    analytics_file = st.file_uploader("Choose a file", type=['csv'], key="analytics_uploader")
     
-    with col1:
-        st.markdown('<div class="upload-section">', unsafe_allow_html=True)
-        st.markdown('<h3>AI Analytics Data</h3>', unsafe_allow_html=True)
-        st.write("Upload the AI functions usage data (CSV format)")
-        analytics_file = st.file_uploader("Choose a file", type=['csv'], key="analytics_uploader")
-        
-        if analytics_file is not None:
-            analytics_df = load_and_process_analytics_data(analytics_file)
-            if analytics_df is not None:
-                st.session_state.analytics_data = analytics_df
-                st.success(f"✅ Analytics data loaded successfully! ({len(analytics_df)} records)")
-                
-                # Display sample data
-                st.write("Sample data:")
-                st.dataframe(analytics_df.head(5))
-        st.markdown('</div>', unsafe_allow_html=True)
+    if analytics_file is not None:
+        analytics_df = load_and_process_analytics_data(analytics_file)
+        if analytics_df is not None:
+            st.session_state.analytics_data = analytics_df
+            st.success(f"✅ Analytics data loaded successfully! ({len(analytics_df)} records)")
+            
+            # Display sample data
+            st.write("Sample data:")
+            st.dataframe(analytics_df.head(5))
+    st.markdown('</div>', unsafe_allow_html=True)
     
-    with col2:
+    # Display group data information
+    if st.session_state.group_data is not None:
         st.markdown('<div class="upload-section">', unsafe_allow_html=True)
         st.markdown('<h3>Group Name Data</h3>', unsafe_allow_html=True)
-        st.write("Upload the company group names data (CSV format)")
-        group_file = st.file_uploader("Choose a file", type=['csv'], key="group_uploader")
+        st.info(f"✅ Group data is embedded in the dashboard. ({len(st.session_state.group_data)} companies)")
         
-        if group_file is not None:
-            group_df = load_group_data(group_file)
-            if group_df is not None:
-                st.session_state.group_data = group_df
-                st.success(f"✅ Group data loaded successfully! ({len(group_df)} companies)")
-                
-                # Display sample data
-                st.write("Sample data:")
-                st.dataframe(group_df.head(5))
+        # Display sample data
+        st.write("Sample data:")
+        st.dataframe(st.session_state.group_data.head(5))
         st.markdown('</div>', unsafe_allow_html=True)
     
-    # Merge datasets if both are available
+    # Merge datasets if analytics data is available
     if st.session_state.analytics_data is not None and st.session_state.group_data is not None:
         merged_df = merge_datasets(st.session_state.analytics_data, st.session_state.group_data)
         if merged_df is not None:
@@ -133,32 +126,55 @@ with tab1:
         # Main dashboard content
         stats = get_summary_stats(filtered_df)
         
-        # Summary statistics cards
+        # Summary statistics cards with colored boxes
         st.markdown('<h2 class="section-title">Summary Statistics</h2>', unsafe_allow_html=True)
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.markdown('<div class="stats-card">', unsafe_allow_html=True)
-            st.markdown(f'<h3>Total Requests</h3><p>{stats["total_requests"]:,}</p>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            color = STATS_COLORS['Total Requests']
+            st.markdown(f'''
+            <div class="stats-card" style="border-left: 5px solid {color}; background: linear-gradient(to right, {color}10, white)">
+                <h3>Total Requests</h3>
+                <p style="color: {color};">{stats["total_requests"]:,}</p>
+            </div>
+            ''', unsafe_allow_html=True)
         
         with col2:
-            st.markdown('<div class="stats-card">', unsafe_allow_html=True)
-            st.markdown(f'<h3>Total Companies</h3><p>{stats["total_companies"]:,}</p>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            color = STATS_COLORS['Total Companies']
+            st.markdown(f'''
+            <div class="stats-card" style="border-left: 5px solid {color}; background: linear-gradient(to right, {color}10, white)">
+                <h3>Total Companies</h3>
+                <p style="color: {color};">{stats["total_companies"]:,}</p>
+            </div>
+            ''', unsafe_allow_html=True)
         
         with col3:
-            st.markdown('<div class="stats-card">', unsafe_allow_html=True)
-            st.markdown(f'<h3>Total Users</h3><p>{stats["total_users"]:,}</p>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            color = STATS_COLORS['Total Users']
+            st.markdown(f'''
+            <div class="stats-card" style="border-left: 5px solid {color}; background: linear-gradient(to right, {color}10, white)">
+                <h3>Total Users</h3>
+                <p style="color: {color};">{stats["total_users"]:,}</p>
+            </div>
+            ''', unsafe_allow_html=True)
         
         with col4:
-            st.markdown('<div class="stats-card">', unsafe_allow_html=True)
-            st.markdown(f'<h3>Total Tokens</h3><p>{stats["total_tokens"]:,}</p>', unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            color = STATS_COLORS['Total Tokens']
+            st.markdown(f'''
+            <div class="stats-card" style="border-left: 5px solid {color}; background: linear-gradient(to right, {color}10, white)">
+                <h3>Total Tokens</h3>
+                <p style="color: {color};">{stats["total_tokens"]:,}</p>
+            </div>
+            ''', unsafe_allow_html=True)
+        
+        # New total daily usage chart
+        st.markdown('<h2 class="section-title">Overall Usage Trend</h2>', unsafe_allow_html=True)
+        st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+        total_daily_chart = create_total_daily_usage_chart(filtered_df)
+        st.plotly_chart(total_daily_chart, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
         
         # First row of charts
-        st.markdown('<h2 class="section-title">Usage Trends</h2>', unsafe_allow_html=True)
+        st.markdown('<h2 class="section-title">Usage by Function</h2>', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         
         with col1:
@@ -221,18 +237,40 @@ with tab1:
             st.plotly_chart(hourly_chart, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
         
+        # Export options
+        st.markdown('<h2 class="section-title">Export Options</h2>', unsafe_allow_html=True)
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Download filtered data as CSV
+            csv = filtered_df.to_csv(index=False)
+            b64_csv = base64.b64encode(csv.encode()).decode()
+            st.markdown(
+                f'<a href="data:file/csv;base64,{b64_csv}" download="ai_analytics.csv" class="custom-button">Download CSV Data</a>',
+                unsafe_allow_html=True
+            )
+        
+        with col2:
+            # Generate and download PDF report
+            if st.button("Generate PDF Report", type="primary"):
+                with st.spinner("Generating PDF report..."):
+                    try:
+                        pdf_data = create_pdf_report(filtered_df, stats)
+                        b64_pdf = base64.b64encode(pdf_data).decode()
+                        st.markdown(
+                            f'<a href="data:application/pdf;base64,{b64_pdf}" download="ai_analytics_report.pdf" class="custom-button">Download PDF Report</a>',
+                            unsafe_allow_html=True
+                        )
+                        st.success("PDF report generated successfully!")
+                    except Exception as e:
+                        st.error(f"Error generating PDF report: {str(e)}")
+        
         # Data table view
         with st.expander("View Data Table"):
             st.dataframe(filtered_df)
-            
-            # Download filtered data option
-            csv = filtered_df.to_csv(index=False)
-            b64 = base64.b64encode(csv.encode()).decode()
-            href = f'<a href="data:file/csv;base64,{b64}" download="filtered_ai_analytics.csv" class="custom-button">Download Filtered Data</a>'
-            st.markdown(href, unsafe_allow_html=True)
     
     else:
-        st.info("👈 Please upload both data files in the Data Upload tab to view the dashboard.")
+        st.info("👈 Please upload the AI analytics data in the Data Upload tab to view the dashboard.")
         
         # Sample visualizations using placeholder data
         st.markdown('<h2 class="section-title">Dashboard Preview</h2>', unsafe_allow_html=True)
@@ -241,10 +279,10 @@ with tab1:
         col1, col2 = st.columns(2)
         
         with col1:
-            st.image("https://via.placeholder.com/600x400.png?text=Daily+Usage+Chart", use_column_width=True)
+            st.image("https://via.placeholder.com/600x400.png?text=Daily+Usage+Chart", use_container_width=True)
         
         with col2:
-            st.image("https://via.placeholder.com/600x400.png?text=Function+Distribution+Chart", use_column_width=True)
+            st.image("https://via.placeholder.com/600x400.png?text=Function+Distribution+Chart", use_container_width=True)
 
 # Footer
 st.markdown("---")
